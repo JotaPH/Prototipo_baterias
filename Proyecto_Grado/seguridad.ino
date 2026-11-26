@@ -1,9 +1,19 @@
 void revisarSeguridad() {
-  if (estado == IDLE || estado == PAUSADO || estado == FINALIZADO || estado == FALLO) return;
-
+  // Se siguen leyendo las condiciones durante PAUSA para permitir la recuperación.
   muestrasSobreVoltaje = (voltajeBateria > 4300.0f) ? muestrasSobreVoltaje + 1 : 0;
   muestrasSobreCorriente = (fabs(corrienteBateria) > 2100.0f) ? muestrasSobreCorriente + 1 : 0;
   muestrasSobreTemperatura = (temperaturaBateria > 60.0f) ? muestrasSobreTemperatura + 1 : 0;
+
+  bool condicionesSeguras = bateriaValida &&
+    muestrasSobreVoltaje == 0 && muestrasSobreCorriente == 0 &&
+    muestrasSobreTemperatura == 0;
+
+  if (estado == PAUSADO && alarmaActiva && condicionesSeguras) {
+    alarmaActiva = false;
+    emitirEvento("ALARMA_RESTABLECIDA", "REQUIERE_INICIO_MANUAL");
+    return;
+  }
+  if (estado == IDLE || estado == PAUSADO || estado == FINALIZADO || estado == FALLO) return;
 
   if (!bateriaValida) {
     pausarSistema("BATERIA_NO_DETECTADA", true);
