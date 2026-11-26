@@ -163,27 +163,30 @@ void ejecutarMaquinaEstados() {
   } else {
     switch (estado) {
       case PRECARGA:
-        SetPoint = corrientePrecarga;
-        activarCarga();
         if (voltajeBateria >= voltajePrecarga) {
           estado = CARGA_CC;
           resetPID_Carga();
+        } else {
+          SetPoint = corrientePrecarga;
+          activarCarga();
         }
         break;
       case CARGA_CC:
-        SetPoint = SetPointUsuario;
-        activarCarga();
         if (voltajeBateria >= 4200.0f) {
           estado = CARGA_CV;
           resetPID_Carga();
+        } else {
+          SetPoint = SetPointUsuario;
+          activarCarga();
         }
         break;
       case CARGA_CV:
-        activarCarga();
         if (corrienteBateria <= corrienteMinima) {
           apagarEtapasPotencia();
           estado = FINALIZADO;
           emitirEvento("CARGA_FINALIZADA", "");
+        } else {
+          activarCarga();
         }
         break;
       case DESCARGA:
