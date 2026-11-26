@@ -17,8 +17,17 @@ void medirParamtros() {
 }
 
 void actualizarReleBateria() {
-  // El relé de batería depende exclusivamente de la detección de batería válida.
-  digitalWrite(habilitarBateria, bateriaValida ? HIGH : LOW);
+  // La validez autoriza la conexión, pero no la solicita por sí sola.
+  // Solo se conecta durante una operación activa; en reposo/pausa queda apagado.
+  bool operacionActiva =
+    estado == PRECARGA || estado == CARGA_CC || estado == CARGA_CV ||
+    estado == DESCARGA ||
+    (estado >= RINT_ESTABILIZAR_I1 && estado <= RINT_MUESTREAR_I2);
+
+  digitalWrite(habilitarBateria,
+               (bateriaValida && operacionActiva) ? HIGH : LOW);
+
+  // El indicador sí representa únicamente la presencia de batería válida.
   digitalWrite(ledIndicador, bateriaValida ? HIGH : LOW);
 }
 
