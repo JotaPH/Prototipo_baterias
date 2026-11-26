@@ -54,6 +54,7 @@ void iniciarOperacion() {
     estado = estadoReanudacion;
   } else if (modoOperacion == MODO_CARGA) {
     if (voltajeBateria < 2000.0f && !permitirPrecargaBajo2V) {
+      estadoReanudacion = IDLE;
       pausarSistema("PRECARGA_BLOQUEADA_BAJO_2V", false);
       return;
     }
@@ -113,6 +114,7 @@ void resetSistema() {
   I1_R = 200.0f; I2_R = 1000.0f;
   t1_R_ms = 10000; t2_R_ms = 2000;
   idPruebaR = 0;
+  reiniciarIdEventos();
   rintSolicitada = rintEnCurso = false;
   motivoPausa = "";
   alarmaActiva = false;
@@ -177,6 +179,10 @@ void ejecutarMaquinaEstados() {
       case DESCARGA:
         activarDescarga();
         if (voltajeBateria <= voltajeMinimo) {
+          if (rintSolicitada || rintEnCurso) {
+            emitirEvento("RINT_INTERRUMPIDA", "TEST=" + String(idPruebaR) + "|MOTIVO=VOLTAJE_MINIMO_ANTES_DE_COMPLETAR");
+            rintSolicitada = false; rintEnCurso = false; RInternaValida = false;
+          }
           apagarEtapasPotencia();
           estado = FINALIZADO;
           rintSolicitada = false;
@@ -184,6 +190,7 @@ void ejecutarMaquinaEstados() {
         } else if (rintSolicitada && capacidadConocida &&
                    capacidadDescarga_mAh >= capacidadConocida_mAh * 0.5f) {
           estado = RINT_ESTABILIZAR_I1;
+          inicioEstabilizacionR = millis();
           rintEnCurso = true;
           muestrasEstablesR = 0;
           sumaI_R = sumaV_R = 0;
@@ -195,6 +202,10 @@ void ejecutarMaquinaEstados() {
         break;
       case RINT_ESTABILIZAR_I1:
       case RINT_ESTABILIZAR_I2:
+        if (millis() - inicioEstabilizacionR > 30000UL) {
+          pausarSistema(estado == RINT_ESTABILIZAR_I1 ? "RINT_NO_ESTABILIZA_I1" : "RINT_NO_ESTABILIZA_I2", false);
+          break;
+        }
         SetPoint = (estado == RINT_ESTABILIZAR_I1) ? I1_R : I2_R;
         activarDescarga();
         toleranciaR_mA = max(5.0f, 0.02f * fabs(SetPoint));
@@ -224,6 +235,7 @@ void ejecutarMaquinaEstados() {
           if (primera) {
             promedioI1 = iProm; promedioV1 = vProm;
             estado = RINT_ESTABILIZAR_I2;
+            inicioEstabilizacionR = millis();
             resetPID_Descarga();
           } else {
             promedioI2 = iProm; promedioV2 = vProm;
@@ -236,6 +248,7 @@ void ejecutarMaquinaEstados() {
             rintEnCurso = false;
             rintSolicitada = false;
             estado = DESCARGA;
+            SetPoint = SetPointUsuario;
             resetPID_Descarga();
             emitirEvento("RINT_FINALIZADA", "TEST=" + String(idPruebaR) +
               "|R_OHM=" + String(RInterna, 6) + "|VALIDA=" + String(RInternaValida ? 1 : 0));
