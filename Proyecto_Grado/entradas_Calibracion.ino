@@ -1,37 +1,42 @@
-void medirParamtros(){
-
-  float voltajeADC = (analogRead(detectarBateria)*3300.0)/4095.0; 
-
-  if (!bateriaValida && voltajeADC >= 10.0){
+void medirParamtros() {
+  float voltajeADC = (analogRead(detectarBateria) * 3300.0f) / 4095.0f;
+  // Se conserva el umbral de detección existente; debe corresponder al divisor real del hardware.
+  if (!bateriaValida && voltajeADC >= 10.0f) {
     bateriaValida = true;
-    digitalWrite(ledIndicador, 1);
-  }
-
-  else if (bateriaValida && voltajeADC <= 1.0){
+    digitalWrite(ledIndicador, HIGH);
+  } else if (bateriaValida && voltajeADC <= 1.0f) {
     bateriaValida = false;
-    digitalWrite(habilitarBateria, 0);
-    digitalWrite(ledIndicador, 0);
+    digitalWrite(ledIndicador, LOW);
   }
 
-  corrienteBateria = ina3221.getCurrentAmps(0)*1000.0;
-
-  voltajeBateria = ina3221.getBusVoltage(1)*1000.0;
+  corrienteBateria = ina3221.getCurrentAmps(0) * 1000.0f;
+  voltajeBateria = ina3221.getBusVoltage(1) * 1000.0f;
   calibrarVoltajeCarga();
-
-  temperaturaBateria = ina3221.getBusVoltage(2)*1000.0 + 6.0;
+  temperaturaBateria = ina3221.getBusVoltage(2) * 1000.0f + 6.0f;
   calcularTemperatura();
 }
 
-void revisarBateria(){
-  if (bateriaValida) digitalWrite(habilitarBateria, 1);
+void actualizarReleBateria() {
+  // La validez autoriza la conexión, pero no la solicita por sí sola.
+  // Solo se conecta durante una operación activa; en reposo/pausa queda apagado.
+  bool operacionActiva =
+    estado == PRECARGA || estado == CARGA_CC || estado == CARGA_CV ||
+    estado == DESCARGA ||
+    (estado >= RINT_ESTABILIZAR_I1 && estado <= RINT_MUESTREAR_I2);
+
+  digitalWrite(habilitarBateria,
+               (bateriaValida && operacionActiva) ? HIGH : LOW);
+
+  // El indicador sí representa únicamente la presencia de batería válida.
+  digitalWrite(ledIndicador, bateriaValida ? HIGH : LOW);
 }
 
 void calibrarVoltajeCarga() {
-  calibracionCarga = 0.0000047952 * pow(corrienteBateria, 2) - 0.0542058 * corrienteBateria + 18.3546;
+  calibracionCarga = 0.0000047952f * pow(corrienteBateria, 2) - 0.0542058f * corrienteBateria + 18.3546f;
   voltajeBateria += calibracionCarga;
 }
 
 void calcularTemperatura() {
   float V = temperaturaBateria;
-  temperaturaBateria = 0.00000000151869 * pow(V, 3) - 0.0000110761 * pow(V, 2) + 0.04912155 * V - 30.7246364;
+  temperaturaBateria = 0.00000000151869f * pow(V, 3) - 0.0000110761f * pow(V, 2) + 0.04912155f * V - 30.7246364f;
 }

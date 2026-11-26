@@ -1,95 +1,230 @@
-extern unsigned long tiempoAnterior;
-extern float voltajeMinimo;
-extern float corrienteMinima;
-extern float voltajePrecarga;
-extern float corrientePrecarga;
-extern float m_n1;
-extern float m_n1_2;
+// Protocolo: @ID|COMANDO|PARAMETROS|CRC16\n
+// CRC-16/CCITT-FALSE sobre "ID|COMANDO|PARAMETROS" (sin @ ni |CRC).
+// CONFIG: SP_mA,Imin_mA,Vmin_mV,Ipre_mA,Vpre_mV,allowBelow2,capKnown,capacidad_mAh
+// MODO: CARGA o DESCARGA. RINT: I1_mA,t1_s,I2_mA,t2_s.
 
-extern bool cargarBateria;
-extern bool descargarBateria;
+static char rxBuffer[220];
+static uint16_t rxLength = 0;
+static bool rxOverflow = false;
+static uint32_t ultimoIdRX = 0;
+static uint32_t idEventoTX = 50000;
 
-extern int estadoActualC;
-extern int estadoActualD;
-extern int estadoActualR;
+uint16_t crc16_ccitt(const char *data) {
+  uint16_t crc = 0xFFFF;
+  while (*data) {
+    crc ^= (uint16_t)(uint8_t)(*data++) << 8;
+    for (uint8_t i = 0; i < 8; i++)
+      crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
+  }
+  return crc;
+}
 
-bool hacerPrecarga = false;
+void enviarFrame(uint32_t id, const char *tipo, const String &payload) {
+  String base = String(id) + "|" + tipo + "|" + payload;
+  uint16_t crc = crc16_ccitt(base.c_str());
+  char crcText[5];
+  snprintf(crcText, sizeof(crcText), "%04X", crc);
+  Serial.print("@");
+  Serial.print(base);
+  Serial.print("|");
+  Serial.print(crcText);
+  Serial.print("\n");
+}
 
-void leerSerial() {
+void responder(uint32_t id, const char *tipo, const String &payload) {
+  enviarFrame(id, tipo, payload);
+}
 
-  if (Serial.available()) {
-    String comando = Serial.readStringUntil('\n');
-    comando.trim();
+void emitirEvento(const char *evento, const String &payload) {
+  String contenido = String(evento);
+  if (payload.length()) {
+    contenido += "|";
+    contenido += payload;
+  }
+  enviarFrame(idEventoTX++, "EVENTO", contenido);
+}
 
-    if (comando.length() < 2) return;
+uint8_t contarCamposCSV(const String &s) {
+  if (!s.length()) return 0;
+  uint8_t n = 1;
+  for (uint16_t i = 0; i < s.length(); i++) if (s[i] == ',') n++;
+  return n;
+}
 
-    else if (comando.length() == 2 && comando[0] == 'E'){
-      empezar = comando.substring(1, 2).toInt();
-      prepararCiclo();
-      tiempoAnterior = millis();
+String campoCSV(const String &s, uint8_t indice) {
+  int inicio = 0;
+  for (uint8_t i = 0; i < indice; i++) {
+    int p = s.indexOf(',', inicio);
+    if (p < 0) return "";
+    inicio = p + 1;
+  }
+  int fin = s.indexOf(',', inicio);
+  if (fin < 0) fin = s.length();
+  return s.substring(inicio, fin);
+}
+
+bool numeroValido(const String &s, float &v) {
+  if (!s.length()) return false;
+  char *endp = nullptr;
+  v = strtof(s.c_str(), &endp);
+  return endp != s.c_str() && *endp == '\0' && isfinite(v);
+}
+
+void responderEstado(uint32_t id) {
+  String p = estadoActualSistema + "," + estadoActualTexto + "," + motivoPausa + ",";
+  p += String((int)modoOperacion) + "," + String(voltajeBateria, 1) + ",";
+  p += String(corrienteBateria, 2) + "," + String(capacidadCarga_mAh, 3) + ",";
+  p += String(capacidadDescarga_mAh, 3) + "," + String(energiaCarga_mWh, 3) + ",";
+  p += String(energiaDescarga_mWh, 3) + "," + String(tiempoCarga_s, 1) + ",";
+  p += String(tiempoDescarga_s, 1) + "," + String(RInterna, 6) + ",";
+  p += String(RInternaValida ? 1 : 0) + "," + String(bateriaValida ? 1 : 0);
+  responder(id, "ESTADO", p);
+}
+
+void procesarComando(const String &base, uint32_t id, const String &cmd, const String &payload) {
+  if (id == ultimoIdRX) {
+    responder(id, "ACK_DUPLICADO", "YA_PROCESADO");
+    return;
+  }
+  if (id < ultimoIdRX) {
+    responder(id, "NACK", "ID_ANTIGUO");
+    return;
+  }
+
+  bool aceptado = false;
+  String error = "COMANDO_O_PARAMETROS_INVALIDOS";
+
+  if (cmd == "CONFIG") {
+    float v[8];
+    bool ok = contarCamposCSV(payload) == 8;
+    for (uint8_t i = 0; i < 8; i++) ok &= numeroValido(campoCSV(payload, i), v[i]);
+    if (ok && v[0] > 0 && v[0] <= 2000 && v[1] >= 0 && v[1] <= 2100 &&
+        v[2] >= 2000 && v[2] <= 4200 && v[3] > 0 && v[3] <= 500 &&
+        v[4] >= 2000 && v[4] <= 4200 && (v[5] == 0 || v[5] == 1) &&
+        (v[6] == 0 || v[6] == 1) && v[7] >= 0 && v[7] <= 30000 &&
+        ((v[6] == 0 && v[7] == 0) || (v[6] == 1 && v[7] > 0)) &&
+        (estado == IDLE || (estado == PAUSADO && estadoReanudacion == IDLE))) {
+      SetPoint = SetPointUsuario = v[0]; corrienteMinima = v[1]; voltajeMinimo = v[2];
+      corrientePrecarga = v[3]; voltajePrecarga = v[4];
+      permitirPrecargaBajo2V = v[5] == 1;
+      capacidadConocida = v[6] == 1;
+      capacidadConocida_mAh = v[7];
+      configuracionRecibida = true;
+      aceptado = true;
     }
-
-    else if (comando.length() == 10 && comando[0] == 'R'){
-      
-      estadoActualTexto = "Midiendo RInterna";
-      estadoActualR = 0;
-      SetPoint = comando.substring(3).toFloat();
-      medirR = true;
+  } else if (cmd == "MODO") {
+    if (payload == "CARGA" || payload == "DESCARGA") {
+      if (estado == IDLE || (estado == PAUSADO && estadoReanudacion == IDLE)) {
+        modoOperacion = payload == "CARGA" ? MODO_CARGA : MODO_DESCARGA;
+        cargarBateria = modoOperacion == MODO_CARGA;
+        descargarBateria = modoOperacion == MODO_DESCARGA;
+        modoRecibido = true;
+        aceptado = true;
+      } else error = "PAUSAR_ANTES_DE_CAMBIAR_MODO";
     }
+  } else if (cmd == "SETPOINT") {
+    float v;
+    if (numeroValido(payload, v) && v > 0 && v <= 2000 &&
+        (estado == IDLE || estado == PAUSADO || estado == FINALIZADO)) {
+      SetPoint = SetPointUsuario = v;
+      aceptado = true;
+    } else error = "SETPOINT_INVALIDO_O_SISTEMA_ACTIVO";
+  } else if (cmd == "RINT") {
+    float v[4];
+    bool ok = contarCamposCSV(payload) == 4;
+    for (uint8_t i = 0; i < 4; i++) ok &= numeroValido(campoCSV(payload, i), v[i]);
+    if (ok && capacidadConocida && modoOperacion == MODO_DESCARGA &&
+        v[0] > 0 && v[0] < v[2] && v[2] <= 2000 &&
+        v[1] >= 1 && v[1] <= 120 && v[3] >= 1 && v[3] <= 120 &&
+        !rintEnCurso && !rintSolicitada &&
+        (estado == DESCARGA || estado == PAUSADO || estado == IDLE)) {
+      I1_R = v[0]; t1_R_ms = (uint32_t)(v[1] * 1000.0f);
+      I2_R = v[2]; t2_R_ms = (uint32_t)(v[3] * 1000.0f);
+      rintSolicitada = true;
+      idPruebaR++;
+      RInternaValida = false;
+      RInterna = 0.0f;
+      aceptado = true;
+      emitirEvento("RINT_SOLICITADA", "TEST=" + String(idPruebaR));
+    } else error = !capacidadConocida ? "CAPACIDAD_DESCONOCIDA" : "RINT_NO_PERMITIDA_EN_ESTADO_ACTUAL";
+  } else if (cmd == "INICIO") {
+    if (!configuracionRecibida || !modoRecibido) error = "FALTA_CONFIGURACION_O_MODO";
+    else if (!bateriaValida) error = "BATERIA_NO_DETECTADA";
+    else if (alarmaActiva) error = "ALARMA_ACTIVA";
+    else if (estado == PAUSADO || estado == IDLE) {
+      iniciarOperacion();
+      aceptado = estado != PAUSADO;
+      if (estado == PAUSADO) error = motivoPausa;
+    } else error = (estado == FINALIZADO) ? "OPERACION_FINALIZADA_USE_RESET" : "SISTEMA_YA_ACTIVO";
+  } else if (cmd == "PAUSA") {
+    pausarSistema("PAUSA_MANUAL", false);
+    aceptado = true;
+  } else if (cmd == "RESET") {
+    resetSistema();
+    aceptado = true;
+  } else if (cmd == "ESTADO") {
+    ultimoIdRX = id;
+    responderEstado(id);
+    return;
+  }
 
-    else if (comando.length() == 51 && comando[0] == 'A'){
-      //A01,1500.00,100.00,2900.00,100.00,2900.00,0,9999.99
-      
-      cargarBateria = comando.substring(1, 2).toInt();
-      descargarBateria = comando.substring(2, 3).toInt();
-      SetPoint = comando.substring(4, 11).toFloat();
-      corrienteMinima = comando.substring(12, 18).toFloat();
-      voltajeMinimo = comando.substring(19, 26).toFloat();
-      corrientePrecarga = comando.substring(27, 33).toFloat();
-      voltajePrecarga = comando.substring(34, 41).toFloat();
-      hacerPrecarga = comando.substring(42, 43).toInt();
-      capacidadConocida = comando.substring(44).toInt();
-      empezar = false;
-
-      prepararCiclo();
-
-      if (descargarBateria){
-        estadoActualTexto = "Esperando descarga";
-        calibracionCarga = 0.0468;
-      }
-
-      else if (cargarBateria){
-        estadoActualTexto = "Esperando carga";
-      }
-
-      else estadoActualTexto = "En reposo";
-    }
-
-    else Serial.println("\nERROR: Comando no valido");
-
+  if (aceptado) {
+    ultimoIdRX = id;
+    responder(id, "ACK", cmd + "_ACEPTADO");
+  } else {
+    responder(id, "NACK", error);
   }
 }
 
-void prepararCiclo(){
-    
-  estadoActualC = hacerPrecarga ? 1 : 2;
-  estadoActualD = 1;
+void procesarLinea(char *linea) {
+  if (linea[0] != '@') return;
+  char *crcSep = strrchr(linea, '|');
+  if (!crcSep || strlen(crcSep + 1) != 4) { responder(0, "NACK", "TRAMA_MALFORMADA"); return; }
+  char recibido[5];
+  memcpy(recibido, crcSep + 1, 4); recibido[4] = '\0';
+  char *endp = nullptr;
+  uint16_t crcRecibido = (uint16_t)strtoul(recibido, &endp, 16);
+  if (!endp || *endp != '\0') return;
+  *crcSep = '\0';
+  const char *base = linea + 1;
+  if (crc16_ccitt(base) != crcRecibido) {
+    responder(0, "NACK", "CRC_INVALIDO");
+    return;
+  }
 
-  ledcWrite(controlDescarga, 0);
-  ledcWrite(controlCarga, 0);
+  char *sep1 = strchr((char *)base, '|');
+  if (!sep1) { responder(0, "NACK", "TRAMA_MALFORMADA"); return; }
+  *sep1 = '\0';
+  char *sep2 = strchr(sep1 + 1, '|');
+  if (!sep2) { responder(0, "NACK", "TRAMA_MALFORMADA"); return; }
+  *sep2 = '\0';
+  char *idEnd = nullptr;
+  unsigned long idRaw = strtoul(base, &idEnd, 10);
+  if (base[0] == '\\0' || !idEnd || *idEnd != '\\0' || idRaw == 0) { responder(0, "NACK", "ID_INVALIDO"); return; }
+  uint32_t id = (uint32_t)idRaw;
+  String cmd = String(sep1 + 1);
+  String payload = String(sep2 + 1);
+  procesarComando(String(base), id, cmd, payload);
+}
 
-  digitalWrite(habilitarDescarga, 1);
-  digitalWrite(habilitarCarga, 0);
-
-  m_n1 = 0.0;
-  m_n1_2 = 0.0;
-
-  if (empezar == 0) estadoActualSistema = "Pausado";
-  else if (empezar == 1) estadoActualSistema = "Iniciado";
-  else{
-    estadoActualSistema = "Reiniciado";
-    tiempoTranscurrido = 0.0;
-    capacidad_mAh = 0.0;
-    medirR = false;
+void leerSerial() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      if (!rxOverflow && rxLength > 0) {
+        rxBuffer[rxLength] = '\0';
+        procesarLinea(rxBuffer);
+      } else if (rxOverflow) {
+        responder(0, "NACK", "TRAMA_DEMASIADO_LARGA");
+      }
+      rxLength = 0;
+      rxOverflow = false;
+    } else if (rxLength < sizeof(rxBuffer) - 1) {
+      if (rxLength == 0 && c != '@') continue;
+      rxBuffer[rxLength++] = c;
+    } else {
+      rxOverflow = true;
+    }
   }
 }
