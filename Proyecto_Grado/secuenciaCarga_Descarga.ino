@@ -12,14 +12,14 @@ void actualizarAcumuladores(float dt) {
   if (estado == PRECARGA || estado == CARGA_CC || estado == CARGA_CV) {
     float i = fabs(corrienteBateria);
     capacidadCarga_mAh += i * dt / 3600.0f;
-    energiaCarga_mWh += fabs(voltajeBateria) * i * dt / 3600.0f;
+    energiaCarga_mWh += fabs(voltajeBateria) * i * dt / 3600000.0f;
     tiempoCarga_s += dt;
   } else if (estado == DESCARGA || estado == RINT_ESTABILIZAR_I1 ||
              estado == RINT_MUESTREAR_I1 || estado == RINT_ESTABILIZAR_I2 ||
              estado == RINT_MUESTREAR_I2) {
     float i = fabs(corrienteBateria);
     capacidadDescarga_mAh += i * dt / 3600.0f;
-    energiaDescarga_mWh += fabs(voltajeBateria) * i * dt / 3600.0f;
+    energiaDescarga_mWh += fabs(voltajeBateria) * i * dt / 3600000.0f;
     tiempoDescarga_s += dt;
   }
 }
@@ -71,12 +71,13 @@ void iniciarOperacion() {
 void pausarSistema(const String &motivo, bool porAlarma) {
   if (estado == PAUSADO || estado == FALLO) return;
   if (estado != IDLE && estado != FINALIZADO) estadoReanudacion = estado;
-  bool rintInterrumpida = estado >= RINT_ESTABILIZAR_I1 && estado <= RINT_MUESTREAR_I2;
-  if (rintInterrumpida || (rintSolicitada && estado == DESCARGA && porAlarma)) {
+  bool rintInterrumpida = (estado >= RINT_ESTABILIZAR_I1 && estado <= RINT_MUESTREAR_I2) || rintSolicitada;
+  if (rintInterrumpida) {
     emitirEvento("RINT_INTERRUMPIDA", "TEST=" + String(idPruebaR) + "|MOTIVO=" + motivo);
     rintSolicitada = false;
     rintEnCurso = false;
     RInternaValida = false;
+    SetPoint = SetPointUsuario;
     if (estadoReanudacion >= RINT_ESTABILIZAR_I1 && estadoReanudacion <= RINT_MUESTREAR_I2)
       estadoReanudacion = DESCARGA;
   }
@@ -94,7 +95,7 @@ void resetSistema() {
   estadoReanudacion = IDLE;
   modoOperacion = MODO_NINGUNO;
   cargarBateria = descargarBateria = medirR = false;
-  SetPoint = 500.0f;
+  SetPoint = SetPointUsuario = 500.0f;
   corrienteMinima = 100.0f;
   voltajeMinimo = 2900.0f;
   corrientePrecarga = 100.0f;
@@ -158,6 +159,7 @@ void ejecutarMaquinaEstados() {
         }
         break;
       case CARGA_CC:
+        SetPoint = SetPointUsuario;
         activarCarga();
         if (voltajeBateria >= 4200.0f) {
           estado = CARGA_CV;
@@ -229,6 +231,7 @@ void ejecutarMaquinaEstados() {
             if (deltaI > 0.1f) {
               RInterna = fabs((promedioV1 - promedioV2) / deltaI);
               RInternaValida = isfinite(RInterna) && RInterna > 0;
+            SetPoint = SetPointUsuario;
             } else RInternaValida = false;
             rintEnCurso = false;
             rintSolicitada = false;
