@@ -8,6 +8,7 @@ static uint16_t rxLength = 0;
 static bool rxOverflow = false;
 static uint32_t ultimoIdRX = 0;
 static uint32_t idEventoTX = 50000;
+void reiniciarIdEventos() { idEventoTX = 50000; }
 
 uint16_t crc16_ccitt(const char *data) {
   uint16_t crc = 0xFFFF;
@@ -91,7 +92,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
         v[4] >= 2000 && v[4] <= 4200 && (v[5] == 0 || v[5] == 1) &&
         (v[6] == 0 || v[6] == 1) && v[7] >= 0 && v[7] <= 30000 &&
         ((v[6] == 0 && v[7] == 0) || (v[6] == 1 && v[7] > 0)) &&
-        (estado == IDLE || estado == PAUSADO || estado == FINALIZADO)) {
+        (estado == IDLE || estado == FINALIZADO || (estado == PAUSADO && estadoReanudacion == IDLE))) {
       SetPoint = SetPointUsuario = v[0]; corrienteMinima = v[1]; voltajeMinimo = v[2];
       corrientePrecarga = v[3]; voltajePrecarga = v[4];
       permitirPrecargaBajo2V = v[5] == 1;
@@ -102,7 +103,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
     }
   } else if (cmd == "MODO") {
     if (payload == "CARGA" || payload == "DESCARGA") {
-      if (estado == IDLE || estado == PAUSADO || estado == FINALIZADO) {
+      if (estado == IDLE || estado == FINALIZADO || (estado == PAUSADO && estadoReanudacion == IDLE)) {
         modoOperacion = payload == "CARGA" ? MODO_CARGA : MODO_DESCARGA;
         cargarBateria = modoOperacion == MODO_CARGA;
         descargarBateria = modoOperacion == MODO_DESCARGA;
