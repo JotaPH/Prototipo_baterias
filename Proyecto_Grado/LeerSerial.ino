@@ -91,7 +91,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
         v[4] >= 2000 && v[4] <= 4200 && (v[5] == 0 || v[5] == 1) &&
         (v[6] == 0 || v[6] == 1) && v[7] >= 0 && v[7] <= 30000 &&
         ((v[6] == 0 && v[7] == 0) || (v[6] == 1 && v[7] > 0)) &&
-        (estado == IDLE || estado == FINALIZADO || (estado == PAUSADO && estadoReanudacion == IDLE))) {
+        (estado == IDLE || (estado == PAUSADO && estadoReanudacion == IDLE))) {
       SetPoint = SetPointUsuario = v[0]; corrienteMinima = v[1]; voltajeMinimo = v[2];
       corrientePrecarga = v[3]; voltajePrecarga = v[4];
       permitirPrecargaBajo2V = v[5] == 1;
@@ -131,6 +131,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
       rintSolicitada = true;
       idPruebaR++;
       RInternaValida = false;
+      RInterna = 0.0f;
       aceptado = true;
       emitirEvento("RINT_SOLICITADA", "TEST=" + String(idPruebaR));
     } else error = !capacidadConocida ? "CAPACIDAD_DESCONOCIDA" : "RINT_NO_PERMITIDA_EN_ESTADO_ACTUAL";
@@ -138,11 +139,11 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
     if (!configuracionRecibida || !modoRecibido) error = "FALTA_CONFIGURACION_O_MODO";
     else if (!bateriaValida) error = "BATERIA_NO_DETECTADA";
     else if (alarmaActiva) error = "ALARMA_ACTIVA";
-    else if (estado == PAUSADO || estado == IDLE || estado == FINALIZADO) {
+    else if (estado == PAUSADO || estado == IDLE) {
       iniciarOperacion();
       aceptado = estado != PAUSADO;
       if (estado == PAUSADO) error = motivoPausa;
-    } else error = "SISTEMA_YA_ACTIVO";
+    } else error = (estado == FINALIZADO) ? "OPERACION_FINALIZADA_USE_RESET" : "SISTEMA_YA_ACTIVO";
   } else if (cmd == "PAUSA") {
     pausarSistema("PAUSA_MANUAL", false);
     aceptado = true;
