@@ -13,6 +13,22 @@ void revisarSeguridad() {
     emitirEvento("ALARMA_RESTABLECIDA", "REQUIERE_INICIO_MANUAL");
     return;
   }
+
+  // Una condición peligrosa detectada mientras estaba pausado manualmente
+  // también queda registrada y exige confirmación de recuperación.
+  if (estado == PAUSADO && !alarmaActiva) {
+    String motivo = "";
+    if (!bateriaValida) motivo = "BATERIA_NO_DETECTADA";
+    else if (muestrasSobreVoltaje >= 6) motivo = "SOBREVOLTAJE";
+    else if (muestrasSobreCorriente >= 6) motivo = "SOBRECORRIENTE";
+    else if (muestrasSobreTemperatura >= 6) motivo = "SOBRETEMPERATURA";
+    if (motivo.length()) {
+      alarmaActiva = true;
+      motivoPausa = motivo;
+      actualizarTextoEstado();
+      emitirEvento("ALARMA_DETECTADA_EN_PAUSA", "MOTIVO=" + motivo);
+    }
+  }
   if (estado == IDLE || estado == PAUSADO || estado == FINALIZADO || estado == FALLO) return;
 
   if (!bateriaValida) {
