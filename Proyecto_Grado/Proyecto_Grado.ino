@@ -28,6 +28,7 @@ EstadoSistema estadoReanudacion = IDLE;
 ModoOperacion modoOperacion = MODO_NINGUNO;
 
 float SetPoint = 500.0;
+float SetPointUsuario = 500.0;
 float corrienteMinima = 100.0;
 float voltajeMinimo = 2900.0;
 float corrientePrecarga = 100.0;
