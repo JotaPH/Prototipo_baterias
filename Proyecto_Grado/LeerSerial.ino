@@ -92,7 +92,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
         (v[6] == 0 || v[6] == 1) && v[7] >= 0 && v[7] <= 30000 &&
         ((v[6] == 0 && v[7] == 0) || (v[6] == 1 && v[7] > 0)) &&
         (estado == IDLE || estado == PAUSADO || estado == FINALIZADO)) {
-      SetPoint = v[0]; corrienteMinima = v[1]; voltajeMinimo = v[2];
+      SetPoint = SetPointUsuario = v[0]; corrienteMinima = v[1]; voltajeMinimo = v[2];
       corrientePrecarga = v[3]; voltajePrecarga = v[4];
       permitirPrecargaBajo2V = v[5] == 1;
       capacidadConocida = v[6] == 1;
@@ -114,7 +114,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
     float v;
     if (numeroValido(payload, v) && v > 0 && v <= 2000 &&
         (estado == IDLE || estado == PAUSADO || estado == FINALIZADO)) {
-      SetPoint = v;
+      SetPoint = SetPointUsuario = v;
       aceptado = true;
     } else error = "SETPOINT_INVALIDO_O_SISTEMA_ACTIVO";
   } else if (cmd == "RINT") {
@@ -140,7 +140,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
     else if (alarmaActiva) error = "ALARMA_ACTIVA";
     else if (estado == PAUSADO || estado == IDLE || estado == FINALIZADO) {
       iniciarOperacion();
-      aceptado = estado != PAUSADO || motivoPausa != "BATERIA_NO_DETECTADA";
+      aceptado = estado != PAUSADO;
       if (estado == PAUSADO) error = motivoPausa;
     } else error = "SISTEMA_YA_ACTIVO";
   } else if (cmd == "PAUSA") {
@@ -156,7 +156,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
   }
 
   if (aceptado) {
-    ultimoIdRX = id;
+    ultimoIdRX = (cmd == "RESET") ? 0 : id;
     responder(id, "ACK", cmd + "_ACEPTADO");
   } else {
     responder(id, "NACK", error);
