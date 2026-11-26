@@ -32,8 +32,6 @@ void activarCarga() {
   // Primero se calcula la señal PWM; después se habilita el relé de carga.
   calcularPID_Carga(estado == CARGA_CV);
   digitalWrite(habilitarCarga, HIGH);
-  // Este relé también se mantiene activo en reposo si la batería es válida.
-  digitalWrite(habilitarBateria, HIGH);
 }
 
 void activarDescarga() {
@@ -44,7 +42,6 @@ void activarDescarga() {
     digitalWrite(habilitarDescarga, HIGH);
     return;
   }
-  digitalWrite(habilitarBateria, HIGH);
   digitalWrite(habilitarDescarga, LOW);
   calcularPID_Descarga();
 }
@@ -93,6 +90,7 @@ void pausarSistema(const String &motivo, bool porAlarma) {
   }
   apagarEtapasPotencia();
   estado = PAUSADO;
+  actualizarReleBateria(); // Desconectar inmediatamente al entrar en pausa.
   motivoPausa = motivo;
   alarmaActiva = porAlarma;
   actualizarTextoEstado();
@@ -131,6 +129,7 @@ void resetSistema() {
   resetPID_Descarga();
   tiempoCargaAnterior = tiempoDescargaAnterior = millis();
   tiempoAcumuladoresAnterior = millis();
+  actualizarReleBateria(); // IDLE nunca conecta automáticamente la batería.
   actualizarTextoEstado();
   emitirEvento("RESET_COMPLETADO", "CONFIGURACION_PREDETERMINADA");
 }
@@ -274,6 +273,7 @@ void ejecutarMaquinaEstados() {
       default: break;
     }
   }
+  actualizarReleBateria(); // La conexión sigue siempre al estado y a la validez.
   if (estado != anterior) {
     actualizarTextoEstado();
     emitirEvento("CAMBIO_ESTADO", estadoActualSistema);
