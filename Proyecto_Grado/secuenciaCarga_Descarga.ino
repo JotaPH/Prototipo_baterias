@@ -29,9 +29,11 @@ void activarCarga() {
   digitalWrite(habilitarDescarga, HIGH);
   digitalWrite(habilitarCarga, LOW);
   if (!bateriaValida) return;
-  digitalWrite(habilitarBateria, HIGH);
-  digitalWrite(habilitarCarga, HIGH);
+  // Primero se calcula la señal PWM; después se habilita el relé de carga.
   calcularPID_Carga(estado == CARGA_CV);
+  digitalWrite(habilitarCarga, HIGH);
+  // Este relé también se mantiene activo en reposo si la batería es válida.
+  digitalWrite(habilitarBateria, HIGH);
 }
 
 void activarDescarga() {
@@ -70,8 +72,9 @@ void iniciarOperacion() {
 }
 
 void pausarSistema(const String &motivo, bool porAlarma) {
-  if (estado == PAUSADO || estado == FALLO) return;
-  if (estado != IDLE && estado != FINALIZADO) estadoReanudacion = estado;
+  if (estado == PAUSADO || estado == FALLO || estado == FINALIZADO) return;
+  if (estado == IDLE) estadoReanudacion = IDLE;
+  else estadoReanudacion = estado;
   bool rintInterrumpida = (estado >= RINT_ESTABILIZAR_I1 && estado <= RINT_MUESTREAR_I2) || rintSolicitada;
   if (rintInterrumpida) {
     emitirEvento("RINT_INTERRUMPIDA", "TEST=" + String(idPruebaR) + "|MOTIVO=" + motivo);
