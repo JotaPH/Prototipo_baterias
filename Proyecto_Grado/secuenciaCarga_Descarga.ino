@@ -51,15 +51,21 @@ void activarDescarga() {
 
 void iniciarOperacion() {
   if (!configuracionRecibida || !modoRecibido || !bateriaValida || alarmaActiva) return;
+  // La restricción de batería bajo 2 V se comprueba también al reanudar.
+  if (modoOperacion == MODO_CARGA && voltajeBateria < 2000.0f && !permitirPrecargaBajo2V) {
+    apagarEtapasPotencia();
+    estadoReanudacion = IDLE;
+    estado = PAUSADO;
+    motivoPausa = "PRECARGA_BLOQUEADA_BAJO_2V";
+    alarmaActiva = false;
+    actualizarTextoEstado();
+    emitirEvento("SISTEMA_PAUSADO", "MOTIVO=PRECARGA_BLOQUEADA_BAJO_2V");
+    return;
+  }
   motivoPausa = "";
   if (estado == PAUSADO && estadoReanudacion != IDLE && estadoReanudacion != PAUSADO) {
     estado = estadoReanudacion;
   } else if (modoOperacion == MODO_CARGA) {
-    if (voltajeBateria < 2000.0f && !permitirPrecargaBajo2V) {
-      estadoReanudacion = IDLE;
-      pausarSistema("PRECARGA_BLOQUEADA_BAJO_2V", false);
-      return;
-    }
     estado = (voltajeBateria < voltajePrecarga) ? PRECARGA : CARGA_CC;
   } else if (modoOperacion == MODO_DESCARGA) {
     estado = DESCARGA;
@@ -181,7 +187,6 @@ void ejecutarMaquinaEstados() {
         }
         break;
       case DESCARGA:
-        activarDescarga();
         if (voltajeBateria <= voltajeMinimo) {
           if (rintSolicitada || rintEnCurso) {
             emitirEvento("RINT_INTERRUMPIDA", "TEST=" + String(idPruebaR) + "|MOTIVO=VOLTAJE_MINIMO_ANTES_DE_COMPLETAR");
@@ -191,7 +196,9 @@ void ejecutarMaquinaEstados() {
           estado = FINALIZADO;
           rintSolicitada = false;
           emitirEvento("DESCARGA_FINALIZADA", "");
-        } else if (rintSolicitada && capacidadConocida &&
+        } else {
+          activarDescarga();
+          if (rintSolicitada && capacidadConocida &&
                    capacidadDescarga_mAh >= capacidadConocida_mAh * 0.5f) {
           estado = RINT_ESTABILIZAR_I1;
           inicioEstabilizacionR = millis();
@@ -202,6 +209,7 @@ void ejecutarMaquinaEstados() {
           SetPoint = I1_R;
           resetPID_Descarga();
           emitirEvento("RINT_INICIO", "TEST=" + String(idPruebaR));
+          }
         }
         break;
       case RINT_ESTABILIZAR_I1:
