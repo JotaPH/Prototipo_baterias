@@ -36,7 +36,19 @@ void responder(uint32_t id, const char *tipo, const String &payload) {
 }
 
 void emitirEvento(const char *evento, const String &payload) {
-  enviarFrame(idEventoTX++, "EVENTO", String(evento) + (payload.length() ? "|" + payload : ""));
+  String contenido = String(evento);
+  if (payload.length()) {
+    contenido += "|";
+    contenido += payload;
+  }
+  enviarFrame(idEventoTX++, "EVENTO", contenido);
+}
+
+uint8_t contarCamposCSV(const String &s) {
+  if (!s.length()) return 0;
+  uint8_t n = 1;
+  for (uint16_t i = 0; i < s.length(); i++) if (s[i] == ',') n++;
+  return n;
 }
 
 String campoCSV(const String &s, uint8_t indice) {
@@ -84,7 +96,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
 
   if (cmd == "CONFIG") {
     float v[8];
-    bool ok = true;
+    bool ok = contarCamposCSV(payload) == 8;
     for (uint8_t i = 0; i < 8; i++) ok &= numeroValido(campoCSV(payload, i), v[i]);
     if (ok && v[0] > 0 && v[0] <= 2000 && v[1] >= 0 && v[1] <= 2100 &&
         v[2] >= 2000 && v[2] <= 4200 && v[3] > 0 && v[3] <= 500 &&
@@ -102,7 +114,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
     }
   } else if (cmd == "MODO") {
     if (payload == "CARGA" || payload == "DESCARGA") {
-      if (estado == IDLE || estado == FINALIZADO || (estado == PAUSADO && estadoReanudacion == IDLE)) {
+      if (estado == IDLE || (estado == PAUSADO && estadoReanudacion == IDLE)) {
         modoOperacion = payload == "CARGA" ? MODO_CARGA : MODO_DESCARGA;
         cargarBateria = modoOperacion == MODO_CARGA;
         descargarBateria = modoOperacion == MODO_DESCARGA;
@@ -119,7 +131,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
     } else error = "SETPOINT_INVALIDO_O_SISTEMA_ACTIVO";
   } else if (cmd == "RINT") {
     float v[4];
-    bool ok = true;
+    bool ok = contarCamposCSV(payload) == 4;
     for (uint8_t i = 0; i < 4; i++) ok &= numeroValido(campoCSV(payload, i), v[i]);
     if (ok && capacidadConocida && modoOperacion == MODO_DESCARGA &&
         v[0] > 0 && v[0] < v[2] && v[2] <= 2000 &&
@@ -167,7 +179,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
 void procesarLinea(char *linea) {
   if (linea[0] != '@') return;
   char *crcSep = strrchr(linea, '|');
-  if (!crcSep || strlen(crcSep + 1) != 4) return;
+  if (!crcSep || strlen(crcSep + 1) != 4) { responder(0, "NACK", "TRAMA_MALFORMADA"); return; }
   char recibido[5];
   memcpy(recibido, crcSep + 1, 4); recibido[4] = '\0';
   char *endp = nullptr;
@@ -181,12 +193,15 @@ void procesarLinea(char *linea) {
   }
 
   char *sep1 = strchr((char *)base, '|');
-  if (!sep1) return;
+  if (!sep1) { responder(0, "NACK", "TRAMA_MALFORMADA"); return; }
   *sep1 = '\0';
   char *sep2 = strchr(sep1 + 1, '|');
-  if (!sep2) return;
+  if (!sep2) { responder(0, "NACK", "TRAMA_MALFORMADA"); return; }
   *sep2 = '\0';
-  uint32_t id = strtoul(base, nullptr, 10);
+  char *idEnd = nullptr;
+  unsigned long idRaw = strtoul(base, &idEnd, 10);
+  if (base[0] == '\\0' || !idEnd || *idEnd != '\\0' || idRaw == 0) { responder(0, "NACK", "ID_INVALIDO"); return; }
+  uint32_t id = (uint32_t)idRaw;
   String cmd = String(sep1 + 1);
   String payload = String(sep2 + 1);
   procesarComando(String(base), id, cmd, payload);
