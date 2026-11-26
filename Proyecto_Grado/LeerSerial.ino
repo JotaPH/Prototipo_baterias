@@ -8,7 +8,6 @@ static uint16_t rxLength = 0;
 static bool rxOverflow = false;
 static uint32_t ultimoIdRX = 0;
 static uint32_t idEventoTX = 50000;
-void reiniciarIdEventos() { idEventoTX = 50000; }
 
 uint16_t crc16_ccitt(const char *data) {
   uint16_t crc = 0xFFFF;
@@ -157,7 +156,7 @@ void procesarComando(const String &base, uint32_t id, const String &cmd, const S
   }
 
   if (aceptado) {
-    ultimoIdRX = (cmd == "RESET") ? 0 : id;
+    ultimoIdRX = id;
     responder(id, "ACK", cmd + "_ACEPTADO");
   } else {
     responder(id, "NACK", error);
