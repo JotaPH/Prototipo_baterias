@@ -63,6 +63,7 @@ uint32_t muestrasR = 0;
 float promedioI1 = 0.0, promedioV1 = 0.0;
 float promedioI2 = 0.0, promedioV2 = 0.0;
 uint32_t inicioMuestreoR = 0;
+uint32_t inicioEstabilizacionR = 0;
 uint8_t muestrasEstablesR = 0;
 float toleranciaR_mA = 5.0;
 
