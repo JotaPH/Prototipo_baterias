@@ -114,7 +114,6 @@ void resetSistema() {
   I1_R = 200.0f; I2_R = 1000.0f;
   t1_R_ms = 10000; t2_R_ms = 2000;
   idPruebaR = 0;
-  reiniciarIdEventos();
   rintSolicitada = rintEnCurso = false;
   motivoPausa = "";
   alarmaActiva = false;
@@ -150,6 +149,8 @@ void ejecutarMaquinaEstados() {
     apagarEtapasPotencia();
   } else if (!bateriaValida) {
     pausarSistema("BATERIA_NO_DETECTADA", true);
+  } else if (estado >= RINT_ESTABILIZAR_I1 && estado <= RINT_MUESTREAR_I2 && voltajeBateria <= voltajeMinimo) {
+    pausarSistema("VOLTAJE_MINIMO_DURANTE_RINT", false);
   } else {
     switch (estado) {
       case PRECARGA:
